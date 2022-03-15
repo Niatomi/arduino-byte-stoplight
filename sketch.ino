@@ -29,21 +29,29 @@ void setup() {
                  
 }
 
+void loop() {
+    dataLightParseAndTurnLights(dataLight);
+}
+
+
 void dataLightParseAndTurnLights(byte data[]) {
     for (int i = 0; i < dataLightSize; i++) {
         digitalWrite(RED, bitRead(data[i], 6));
         digitalWrite(GREEN, bitRead(data[i], 5));
         digitalWrite(YELLOW, bitRead(data[i], 4));
         
-        int timeWait = (bitRead(data[i], 3) * 1000) + 
-            (bitRead(data[i], 2) * 1000) + 
-            (bitRead(data[i], 1) * 1000) + 
-            (bitRead(data[i], 0) * 1000);
+        int timeWait = timeCalculate(i);
         
         delay(timeWait);
     }
 }
 
-void loop() {
-    dataLightParseAndTurnLights(dataLight);
+unsigned int timeCalculate(int index) {
+    byte countTimeBytes = 0;
+    for (int i = 0; i < 4; i++) {
+        if (bitRead(dataLight[i], i) == 1) countTimeBytes++;
+    }
+    
+    unsigned int timeWait = _BV(countTimeBytes) * 1000;
+    return timeWait;
 }
