@@ -7,7 +7,7 @@
 #define DEBUG_LIGHT 7
 
 byte blinkDebugLightTimes = 4; 
-volatile int debugWaitTime = 5000;
+volatile int debugWaitTime = 10000;
 
 volatile unsigned long globalTimeBufferMillis = 0;
 
@@ -32,9 +32,17 @@ struct StoplightScenes {
     };
 };
 
-StoplightScenes stoplightCycle;
+struct StopLightBuffer {    
+    byte scenePosition = 0;
+    byte dataLight[16] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    };
+};
 
-QList<byte> dataLight1;
+StoplightScenes stoplightScenes;
+
+StopLightBuffer stopLightBuffer;
+
 
 void setup() {
     digitalWrite(DEBUG_LIGHT, 1);
@@ -49,21 +57,15 @@ void setup() {
     pinMode(3, INPUT_PULLUP);
     attachInterrupt(1, changeEnterWriteNewSceneModeState, FALLING);
 
-    digitalWrite(RED, bitRead(stoplightCycle.dataLight[stoplightCycle.scenePosition], 6));
-    digitalWrite(GREEN, bitRead(stoplightCycle.dataLight[stoplightCycle.scenePosition], 5));
-    digitalWrite(YELLOW, bitRead(stoplightCycle.dataLight[stoplightCycle.scenePosition], 4));
+    digitalWrite(RED, bitRead(stoplightScenes.dataLight[stoplightScenes.scenePosition], 6));
+    digitalWrite(GREEN, bitRead(stoplightScenes.dataLight[stoplightScenes.scenePosition], 5));
+    digitalWrite(YELLOW, bitRead(stoplightScenes.dataLight[stoplightScenes.scenePosition], 4));
     digitalWrite(DEBUG_LIGHT, 0);
-    dataLight1.clear();
-
-    // EEPROM.put(1, dataLight1);
-    EEPROM.get(1, dataLight1.at(0));
-
-    Serial.print(dataLight1.at(1));
 
 }
 
 void loop() {
-    // dataLightParseAndTurnLights(stoplightCycle.dataLight);
+    dataLightParseAndTurnLights(stoplightScenes.dataLight);
     if (enterWriteNewSceneModeState) enterWriteNewScenesMode()
         ;
 }
@@ -81,7 +83,7 @@ void improvedDelay(int waitTime) {
 unsigned int timeCalculate(int index) {
     byte countTimeBytes = 0;
     for (int i = 0; i < 4; i++) {
-        if (bitRead(stoplightCycle.dataLight[index], i)) countTimeBytes++;
+        if (bitRead(stoplightScenes.dataLight[index], i)) countTimeBytes++;
     }
     
     unsigned int timeWait = _BV(countTimeBytes) * 1000;
@@ -89,7 +91,7 @@ unsigned int timeCalculate(int index) {
 }
 
 void dataLightParseAndTurnLights(byte data[]) {
-    for (int i = 0; i < sizeof(stoplightCycle.dataLight); i++) {
+    for (int i = 0; i < sizeof(stoplightScenes.dataLight); i++) {
 
         digitalWrite(RED, bitRead(data[i], 6));
         digitalWrite(GREEN, bitRead(data[i], 5));
@@ -113,13 +115,9 @@ void enterWriteNewScenesMode() {
     
     disableStoplightUntilUpdateSceneAndTurnOnDebugLight();
 
-    byte newDataScenes[16] = {
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    };
+    readNewByteScenes();
 
-    newDataScenes = readNewByteScenes();
-
-    showScenesConfiguration(list);
+    showScenesConfiguration();
 
     digitalWrite(DEBUG_LIGHT, 0);
 
@@ -136,12 +134,9 @@ void disableStoplightUntilUpdateSceneAndTurnOnDebugLight() {
     digitalWrite(DEBUG_LIGHT, 1);
 }
 
-byte * readNewByteScenes() {
+void readNewByteScenes() {
     globalTimeBufferMillis = millis();
     serialPrintOptimizer("Enter your bytes: ");
-    byte newDataScenes[16] = {
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    };
     byte indexPoint = -1;
     Serial.flush();
     boolean exitState = true;
@@ -149,10 +144,10 @@ byte * readNewByteScenes() {
 
         if (Serial.available() > 1) {
             indexPoint++;
-            newDataScenes[indexPoint] = Serial.parseInt();
+            stopLightBuffer.dataLight[indexPoint] = Serial.parseInt();
             Serial.flush();
             
-            Serial.print(newDataScenes[indexPoint]);
+            Serial.print(stopLightBuffer.dataLight[indexPoint]);
             serialPrintOptimizer(" - scene saved");
             
             // pseudoByte = NULL;
@@ -169,8 +164,6 @@ byte * readNewByteScenes() {
         }
         
     }
-
-    return newDataScenes;
 }
 
 void serialPrintOptimizer(String string) {
@@ -183,17 +176,20 @@ void serialPrintOptimizer(String string) {
 }
 
 
-void showScenesConfiguration(QList<byte> list) {
+void showScenesConfiguration() {
     Serial.println("");
     Serial.println("New scenes configuration: ");
-    for (int i = 0; i < list.size(); i++) {
-        Serial.println(list.at(i));
+    for (int i = 0; i < sizeof(stopLightBuffer.dataLight); i++) {
+        Serial.println(stopLightBuffer.dataLight[i]);
     }
     Serial.println();
 }
 
 void writeDataIntoStruct() {
-
+    for (int i = 0; i < sizeof(stoplightScenes.dataLight); i++) {
+        stoplightScenes.dataLight[i] = stopLightBuffer.dataLight[i];
+    }
+    serialPrintOptimizer("Data transfered to main struct");
 }
 
 // ================ ================ ================ //
