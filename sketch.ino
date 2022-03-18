@@ -1,23 +1,22 @@
 #include <QList.h>
 #include <EEPROM.h>
 
-#define RED 3
-#define YELLOW 4
-#define GREEN 5
-#define DEBUG_LIGHT 6
-
-#define REQUEST_WRITE_BUTTON 2
+#define RED 4
+#define YELLOW 5
+#define GREEN 6
+#define DEBUG_LIGHT 7
 
 byte blinkDebugLightTimes = 4; 
-int awaitTime = 5000;
+volatile int debugWaitTime = 5000;
 
-unsigned long globalTimeBuffer = 0;
-unsigned long secondaryGlobalTimeBuffer = 0;
+volatile unsigned long globalTimeBufferMillis = 0;
+
+boolean enterWriteNewSceneModeState = false;
 
 struct StoplightScenes {    
     byte scenePosition = 0;
     // 163, 128, 160, 128, 160, 128, 195, 208
-    byte dataLight[8] = {
+    byte dataLight[16] = {
       //0b1RGYTime
         0b10100011,
         //blinking
@@ -29,10 +28,13 @@ struct StoplightScenes {
         //////////
         0b11000011,
         0b11010000,
+        0b00000000,
     };
 };
 
 StoplightScenes stoplightCycle;
+
+QList<byte> dataLight1;
 
 void setup() {
     digitalWrite(DEBUG_LIGHT, 1);
@@ -44,17 +46,36 @@ void setup() {
     pinMode(YELLOW, OUTPUT);
     pinMode(DEBUG_LIGHT, OUTPUT);
 
-    pinMode(REQUEST_WRITE_BUTTON, INPUT_PULLUP);
-    attachInterrupt(0, enterWriteNewScenesMode, CHANGE);
+    pinMode(3, INPUT_PULLUP);
+    attachInterrupt(1, changeEnterWriteNewSceneModeState, FALLING);
 
     digitalWrite(RED, bitRead(stoplightCycle.dataLight[stoplightCycle.scenePosition], 6));
     digitalWrite(GREEN, bitRead(stoplightCycle.dataLight[stoplightCycle.scenePosition], 5));
     digitalWrite(YELLOW, bitRead(stoplightCycle.dataLight[stoplightCycle.scenePosition], 4));
     digitalWrite(DEBUG_LIGHT, 0);
+    dataLight1.clear();
 
-    digitalWrite(DEBUG_LIGHT, 0);
+    // EEPROM.put(1, dataLight1);
+    EEPROM.get(1, dataLight1.at(0));
 
-    enterWriteNewScenesMode();
+    Serial.print(dataLight1.at(1));
+
+}
+
+void loop() {
+    // dataLightParseAndTurnLights(stoplightCycle.dataLight);
+    if (enterWriteNewSceneModeState) enterWriteNewScenesMode()
+        ;
+}
+
+void improvedDelay(int waitTime) {
+    globalTimeBufferMillis = millis();
+    boolean cooldownState = true;
+
+    while (cooldownState) {
+        if (millis() - globalTimeBufferMillis > waitTime) 
+            cooldownState = false;
+    }
 }
 
 unsigned int timeCalculate(int index) {
@@ -75,70 +96,36 @@ void dataLightParseAndTurnLights(byte data[]) {
         digitalWrite(YELLOW, bitRead(data[i], 4));
         
         int timeWait = timeCalculate(i);
-        globalTimeBuffer = millis();
-        boolean exitState = true;
-        while (exitState) {
-            if (millis() - globalTimeBuffer > timeWait) exitState = false;
-        }   
+        
+        improvedDelay(timeWait); 
     }
 }
 
 // ================ attachInterrupt ================ //
-QList<byte> readNewByteScenes() {
-    globalTimeBuffer = millis();
-    Serial.println("Enter your bytes: ");
-    QList<byte> list;
-    
-    boolean exitState = true;
-    while (exitState) {
-    
-        if (Serial.available() > 1) {
-
-            unsigned int pseudoByte = Serial.parseInt();
-            Serial.flush();
-            list.push_back(pseudoByte);
-            
-            Serial.print(pseudoByte);
-            Serial.println(" - scene saved");
-            
-            boolean cooldownState = true;
-            globalTimeBuffer = millis();
-
-            while (cooldownState) {
-                if (millis() - globalTimeBuffer > 50) 
-                    cooldownState = false;
-            }
-
-
-        }
-        
-        if (millis() - globalTimeBuffer > awaitTime) {
-            serialPrintOptimizer("You've left update scene mode");
-            exitState = false;
-        }
-        
-    }
-    return list;
+void changeEnterWriteNewSceneModeState() {
+    enterWriteNewSceneModeState = true;
 }
+// ================ ================ ================ //
 
-void serialPrintOptimizer(String string) {
-    Serial.flush();
-    for (int i = 0; i < string.length(); i++) {
-        if (i % 4 == 0) Serial.flush();
-        Serial.print(string.charAt(i));
-    }
-}
-
+// ================ Scene update on interrupt ================ //
 void enterWriteNewScenesMode() {
-    Serial.println("You now in update scene mode");
+    serialPrintOptimizer("You now in update scene mode");
     
     disableStoplightUntilUpdateSceneAndTurnOnDebugLight();
 
-    QList<byte> list = readNewByteScenes();
+    byte newDataScenes[16] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    };
 
-    showList(list);
+    newDataScenes = readNewByteScenes();
+
+    showScenesConfiguration(list);
 
     digitalWrite(DEBUG_LIGHT, 0);
+
+    writeDataIntoStruct();
+
+    enterWriteNewSceneModeState = false;
 }
 
 void disableStoplightUntilUpdateSceneAndTurnOnDebugLight() {
@@ -149,17 +136,65 @@ void disableStoplightUntilUpdateSceneAndTurnOnDebugLight() {
     digitalWrite(DEBUG_LIGHT, 1);
 }
 
-void showList(QList<byte> list) {
-    Serial.println();
+byte * readNewByteScenes() {
+    globalTimeBufferMillis = millis();
+    serialPrintOptimizer("Enter your bytes: ");
+    byte newDataScenes[16] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    };
+    byte indexPoint = -1;
+    Serial.flush();
+    boolean exitState = true;
+    while (exitState) {
+
+        if (Serial.available() > 1) {
+            indexPoint++;
+            newDataScenes[indexPoint] = Serial.parseInt();
+            Serial.flush();
+            
+            Serial.print(newDataScenes[indexPoint]);
+            serialPrintOptimizer(" - scene saved");
+            
+            // pseudoByte = NULL;
+            improvedDelay(50);
+
+        }
+        
+        if (indexPoint == 16) exitState = false
+            ;
+
+        if (millis() - globalTimeBufferMillis > debugWaitTime) {
+            serialPrintOptimizer("You've left update scene mode");
+            exitState = false;
+        }
+        
+    }
+
+    return newDataScenes;
+}
+
+void serialPrintOptimizer(String string) {
+    Serial.flush();
+    for (int i = 0; i < string.length(); i++) {
+        Serial.print(string.charAt(i));
+        if (i % 3 == 0) Serial.flush();
+    }
+    Serial.println("");
+}
+
+
+void showScenesConfiguration(QList<byte> list) {
+    Serial.println("");
+    Serial.println("New scenes configuration: ");
     for (int i = 0; i < list.size(); i++) {
         Serial.println(list.at(i));
     }
     Serial.println();
 }
 
+void writeDataIntoStruct() {
+
+}
+
 // ================ ================ ================ //
 
-
-void loop() {
-    // dataLightParseAndTurnLights(stoplightCycle.dataLight);
-}
