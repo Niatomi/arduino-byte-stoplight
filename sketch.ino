@@ -1,9 +1,8 @@
-#include <QList.h>
 #include <EEPROM.h>
 
-#define RED 4
+#define RED 6
 #define YELLOW 5
-#define GREEN 6
+#define GREEN 4
 #define DEBUG_LIGHT 7
 
 byte blinkDebugLightTimes = 4; 
@@ -18,7 +17,7 @@ struct StoplightScenes {
     // 163, 128, 160, 128, 160, 128, 195, 208
     byte dataLight[16] = {
       //0b1RGYTime
-        0b10100011,
+        0b10100000,
         //blinking
         0b10000000,
         0b10100000,
@@ -26,7 +25,7 @@ struct StoplightScenes {
         0b10100000,
         0b10000000,
         //////////
-        0b11000011,
+        0b11000000,
         0b11010000,
         0b00000000,
     };
@@ -43,11 +42,15 @@ StoplightScenes stoplightScenes;
 
 StopLightBuffer stopLightBuffer;
 
+byte activeSpace = sizeof(stoplightScenes.dataLight);
 
 void setup() {
     digitalWrite(DEBUG_LIGHT, 1);
 
 	Serial.begin(19200);
+    
+    EEPROM.get(0, stoplightScenes.scenePosition);
+    EEPROM.get(1, stoplightScenes.dataLight);
 
     pinMode(RED, OUTPUT);
     pinMode(GREEN, OUTPUT);
@@ -62,15 +65,52 @@ void setup() {
     digitalWrite(YELLOW, bitRead(stoplightScenes.dataLight[stoplightScenes.scenePosition], 4));
     digitalWrite(DEBUG_LIGHT, 0);
 
+    Serial.println(stopLightBuffer.scenePosition);
+
 }
+
+byte index = 0;
 
 void loop() {
-    dataLightParseAndTurnLights(stoplightScenes.dataLight);
-    if (enterWriteNewSceneModeState) enterWriteNewScenesMode()
-        ;
+    dataLightParseAndTurnLights(stoplightScenes.dataLight[index]);
+    index++;
+    stoplightScenes.scenePosition = index;
+
+    saveEEPROM();
+
+    if (enterWriteNewSceneModeState) {
+        enterWriteNewScenesMode();
+    }
 }
 
-void improvedDelay(int waitTime) {
+void dataLightParseAndTurnLights(byte data) {
+
+    digitalWrite(RED, bitRead(data, 6));
+    digitalWrite(GREEN, bitRead(data, 5));
+    digitalWrite(YELLOW, bitRead(data, 4));
+    
+    unsigned int timeWait = timeCalculate(data);
+    
+    if (data == 0) {
+        index = 0;
+        timeWait = 0;
+    }
+
+    improvedDelay(timeWait); 
+
+}
+
+unsigned int timeCalculate(byte data) {
+    byte countTimeBytes = 0;
+    for (int i = 0; i <= 4; i++) {
+        if (bitRead(data, i)) countTimeBytes++;
+    }
+    
+    unsigned int timeWait = _BV(countTimeBytes) * 1000;
+    return timeWait;
+}
+
+void improvedDelay(unsigned int waitTime) {
     globalTimeBufferMillis = millis();
     boolean cooldownState = true;
 
@@ -80,27 +120,10 @@ void improvedDelay(int waitTime) {
     }
 }
 
-unsigned int timeCalculate(int index) {
-    byte countTimeBytes = 0;
-    for (int i = 0; i < 4; i++) {
-        if (bitRead(stoplightScenes.dataLight[index], i)) countTimeBytes++;
-    }
-    
-    unsigned int timeWait = _BV(countTimeBytes) * 1000;
-    return timeWait;
-}
-
-void dataLightParseAndTurnLights(byte data[]) {
-    for (int i = 0; i < sizeof(stoplightScenes.dataLight); i++) {
-
-        digitalWrite(RED, bitRead(data[i], 6));
-        digitalWrite(GREEN, bitRead(data[i], 5));
-        digitalWrite(YELLOW, bitRead(data[i], 4));
-        
-        int timeWait = timeCalculate(i);
-        
-        improvedDelay(timeWait); 
-    }
+void saveEEPROM() {
+    Serial.println("Data saved to EEPROM");
+    EEPROM.update(0, stoplightScenes.scenePosition);
+    EEPROM.put(1, stoplightScenes.dataLight);
 }
 
 // ================ attachInterrupt ================ //
@@ -111,6 +134,8 @@ void changeEnterWriteNewSceneModeState() {
 
 // ================ Scene update on interrupt ================ //
 void enterWriteNewScenesMode() {
+    clearingBuffer();
+
     serialPrintOptimizer("You now in update scene mode");
     
     disableStoplightUntilUpdateSceneAndTurnOnDebugLight();
@@ -124,6 +149,14 @@ void enterWriteNewScenesMode() {
     writeDataIntoStruct();
 
     enterWriteNewSceneModeState = false;
+
+}
+
+void clearingBuffer() {
+    stopLightBuffer.scenePosition = 0;
+    for (int i = 0; i < sizeof(stopLightBuffer.dataLight); i++) {
+        stopLightBuffer.dataLight[i] = 0;
+    }
 }
 
 void disableStoplightUntilUpdateSceneAndTurnOnDebugLight() {
@@ -193,4 +226,3 @@ void writeDataIntoStruct() {
 }
 
 // ================ ================ ================ //
-
