@@ -4,6 +4,9 @@
 #define YELLOW      5
 #define RED         6
 #define DEBUG_LIGHT 7
+#define INTERRUPT_NUMBER 1
+#define INTERRUPT_BUTTON_PIN 3
+
 
 byte blinkDebugLightTimes = 4; 
 volatile int debugWaitTime = 10000;
@@ -106,8 +109,8 @@ void setup() {
     pinMode(YELLOW, OUTPUT);
     pinMode(DEBUG_LIGHT, OUTPUT);
 
-    pinMode(3, INPUT_PULLUP);
-    attachInterrupt(1, changeEnterWriteNewSceneModeState, FALLING);
+    pinMode(INTERRUPT_BUTTON_PIN, INPUT_PULLUP);
+    attachInterrupt(INTERRUPT_NUMBER, changeEnterWriteNewSceneModeState, FALLING);
 
     digitalWrite(RED, bitRead(stoplightScenes.dataLight[stoplightScenes.scenePosition], 6));
     digitalWrite(GREEN, bitRead(stoplightScenes.dataLight[stoplightScenes.scenePosition], 5));
