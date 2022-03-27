@@ -129,7 +129,7 @@ void setup() {
 void loop() {
 
     dataLightParseAndTurnLights(stoplightScenes.dataLight[index]);
-    index++;
+    
     stoplightScenes.scenePosition = index;
 
     savePositionSceneToEEPROM();
@@ -176,12 +176,15 @@ void dataLightParseAndTurnLights(byte data) {
     
     unsigned int timeWait = timeCalculate(data);
     
+    index++;
+    
     if (data == 0) {
         index = 0;
         timeWait = 0;
     }
 
     improvedDelay(timeWait); 
+
 
 }
 
@@ -251,13 +254,11 @@ void enterWriteNewScenesMode() {
 
     serialPrintOptimizer("You now in update scene mode");
     
-    disableStoplightUntilUpdateSceneAndTurnOnDebugLight();
+    debugLightsSet();
 
     readNewByteScenes();
 
     showScenesConfiguration();
-
-    digitalWrite(DEBUG_LIGHT, 0);
 
     writeDataIntoStruct();
 
@@ -265,6 +266,7 @@ void enterWriteNewScenesMode() {
 
     enterWriteNewSceneModeState = false;
 
+    debugLightOff();
 }
 
 /*
@@ -283,7 +285,7 @@ void clearingBuffer() {
 /*
 * Отключает основные светодиоды и включает светодиод режма обновления
 */
-void disableStoplightUntilUpdateSceneAndTurnOnDebugLight() {
+void debugLightsSet() {
     
     digitalWrite(RED, 0);
     digitalWrite(GREEN, 0);
@@ -387,4 +389,11 @@ void saveStructIntoEEPROM() {
     EEPROM.put(0, stoplightScenes.scenePosition);
     EEPROM.put(1, stoplightScenes.isUpdated);
     EEPROM.put(2, stoplightScenes.dataLight);
+}
+
+/*
+* Отключение индикатора режима обновления сцены
+*/
+void debugLightOff() {
+    digitalWrite(DEBUG_LIGHT, 0);
 }
